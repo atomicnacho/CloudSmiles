@@ -1,0 +1,15 @@
+fastapi==0.112.2
+uvicorn[standard]==0.30.6
+pydantic==1.10.15
+# If your code uses httpx for proxying downstream:
+httpx==0.27.2
+# DECIMER + usual scientific deps (adjust to whatever you had working)
+# opencv-python-headless can reduce GUI deps, but many-built wheels still link libGL
+opencv-python==4.10.0.84
+Pillow==10.4.0
+numpy==1.26.4
+# One of these two should exist in your env; keep your current working pin:
+# DECIMER (uppercase module) often ships as this PyPI name:
+DECIMER==2.2.1
+# or if you used the lowercase one:
+# decimer==2.2.1
