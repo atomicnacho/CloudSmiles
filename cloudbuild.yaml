@@ -1,0 +1,42 @@
+# cloudbuild.yaml
+substitutions:
+  _REGION: us-central1          # change if you prefer another region
+  _REPO: containers             # Artifact Registry repo name
+  _SERVICE: decimer-ocsr        # Cloud Run service name
+  _API_KEY: change-me           # <-- set a real key in the Trigger later
+
+steps:
+  # Build the container
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - .
+
+  # Push the image to Artifact Registry
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+
+  # Deploy to Cloud Run
+  - name: gcr.io/cloud-builders/gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
+      - --region=${_REGION}
+      - --platform=managed
+      - --memory=6Gi
+      - --cpu=1
+      - --concurrency=1
+      - --max-instances=1
+      - --timeout=180
+      - --allow-unauthenticated
+      - --set-env-vars
+      - CORS_ORIGINS=https://YOUR-FRONTEND-ORIGIN,API_KEY=${_API_KEY}
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$SHORT_SHA
