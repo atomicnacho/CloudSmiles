@@ -3,14 +3,13 @@ uvicorn[standard]==0.30.6
 pydantic==2.8.2
 httpx==0.27.2
 
-# Use headless to avoid libGL and shrink image
+# Headless avoids libGL
 opencv-python-headless==4.10.0.84
 Pillow==10.4.0
 
-# TensorFlow 2.10.x needs NumPy < 1.24
+# TF 2.10 needs NumPy < 1.24
 numpy==1.23.5
 
 # DECIMER 2.2.1 requires TF 2.10.x
 tensorflow==2.10.1
 DECIMER==2.2.1
-
