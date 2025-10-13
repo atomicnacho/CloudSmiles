@@ -1,30 +1,27 @@
 # Dockerfile (cloudrun)
-FROM python:3.11-slim
+# Use Python 3.10 because DECIMER 2.2.1 requires TensorFlow 2.10.x
+FROM python:3.10-slim
 
-# System deps for OpenCV/DECIMER (libGL) and basic runtime
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 \
-    libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Helpful for libraries that use HuggingFace caches
-ENV HF_HOME=/models \
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/models \
     TRANSFORMERS_CACHE=/models \
-    XDG_CACHE_HOME=/models
+    XDG_CACHE_HOME=/models \
+    TF_CPP_MIN_LOG_LEVEL=2
 
 WORKDIR /app
 
-# Copy and install Python deps first for better Docker layer caching
-COPY requirements.txt .
-# Tip: pin versions here; include: fastapi, uvicorn, httpx (if you want proxy), and decimer/DECIMER + deps
-RUN pip install --no-cache-dir -r requirements.txt
+# Minimal system deps; avoids libGL by using opencv *headless*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+ && rm -rf /var/lib/apt/lists/*
 
-# Now copy your app
+COPY requirements.txt .
+RUN pip install --upgrade pip && pip install --no-cache-dir -r requirements.txt
+
 COPY . .
 
-# Uvicorn port provided by Cloud Run as $PORT
-ENV HOST=0.0.0.0
-ENV PORT=8080
+# Cloud Run provides $PORT. Fall back to 8080 for local runs.
+CMD ["sh","-c","uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]
 
-# If your app file is main.py and app is "app", this is correct:
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
