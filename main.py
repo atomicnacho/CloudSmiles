@@ -33,24 +33,25 @@ class OcsrBody(BaseModel):
 _decimer = None
 _decimer_err = None
 _loading = False
+_status = "idle"
 
 def _ensure_decimer():
-    """Import DECIMER when needed (don’t block startup)."""
-    global _decimer, _decimer_err
+    """Try importing DECIMER (uppercase first), then lowercase as fallback."""
+    global _decimer, _decimer_err, _status
     if _decimer is not None or _decimer_err is not None:
         return
+    _status = "loading"
     try:
-        import importlib
+        _decimer = importlib.import_module("DECIMER")  # try uppercase first
+        _status = "ready"
+    except Exception as e1:
         try:
-            _decimer = importlib.import_module("DECIMER")  # uppercase package
-        except Exception as e1:
-            # fallback to lowercase import name
-            try:
-                _decimer = importlib.import_module("decimer")
-            except Exception as e2:
-                _decimer_err = f"{e1} | {e2}"
-    except Exception as e:
-        _decimer_err = str(e)
+            _decimer = importlib.import_module("decimer")  # fallback
+            _status = "ready"
+        except Exception as e2:
+            _decimer_err = f"{e1} | {e2}"
+            _status = "error"
+
 
 def _warmup_blocking():
     global _loading
@@ -79,12 +80,12 @@ def root():
 
 @app.get("/api/health")
 def health():
-    status = "ready" if _decimer is not None else ("loading" if _loading else "idle")
+    _ensure_decimer()  # make sure we’ve at least tried
     return {
         "ok": True,
         "engine": "DECIMER",
         "version": APP_VERSION,
-        "status": status,
+        "status": _status,                    # "idle" | "loading" | "ready" | "error"
         "decimer_ok": _decimer is not None,
         "decimer_error": _decimer_err,
     }
