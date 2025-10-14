@@ -1,10 +1,11 @@
 # Dockerfile
 FROM python:3.10-slim
 
-# TF uses OpenMP; we need libgomp. Headless OpenCV needs no extra GUI libs.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgomp1 \
-  && rm -rf /var/lib/apt/lists/*
+# Needed by TensorFlow (OpenMP) and pyheif (libheif). Debian 12/13 may call it libheif1 or libheif1t64.
+RUN apt-get update && \
+    (apt-get install -y --no-install-recommends libgomp1 libheif1 \
+     || apt-get install -y --no-install-recommends libgomp1 libheif1t64) \
+    && rm -rf /var/lib/apt/lists/*
 
 # Keep TF/NumPy single-threaded on small instances
 ENV OMP_NUM_THREADS=1 \
@@ -16,16 +17,16 @@ ENV OMP_NUM_THREADS=1 \
 WORKDIR /app
 COPY requirements.txt .
 
-# Install deps; then ensure we end with HEADLESS OpenCV files on disk.
+# Install Python deps, then guarantee HEADLESS OpenCV owns cv2
 RUN pip install --upgrade pip \
  && pip install --no-cache-dir -r requirements.txt \
  && pip uninstall -y opencv-python || true \
  && pip install --no-cache-dir --upgrade --force-reinstall opencv-python-headless==4.10.0.84
 
-# (Optional sanity check; uncomment if you want to fail builds early)
+# Optional: fail the build early if imports would crash at runtime
 # RUN python - <<'PY'
-# import cv2, importlib
-# print("cv2:", cv2.__version__)
+# import pyheif; import cv2, importlib
+# print("pyheif OK, cv2", cv2.__version__)
 # importlib.import_module("DECIMER")
 # print("DECIMER import OK")
 # PY
