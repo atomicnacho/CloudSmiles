@@ -66,13 +66,22 @@ def _ensure_decimer():
             _decimer_err = f"{e1} | {e2}"
             _status = "error"
 
+WARMUP_TIMEOUT_S = 600  # choose a sensible cap for your setup
+_warmup_started_at = None
+
 def _warmup_blocking():
-    global _loading
-    if _loading or _decimer is not None:
-        return
-    _loading = True
+    global _status, _loading, _decimer, _decimer_err, _warmup_started_at
     try:
-        _ensure_decimer()
+        _status = "loading"; _loading = True; _warmup_started_at = time.time()
+        print("[warmup] starting...")
+        import cv2; print("[warmup] cv2 ok")
+        import decimer as _d; print("[warmup] decimer import ok")
+        model = _d.load_model(); print("[warmup] decimer model loaded")
+        _decimer = model; _decimer_err = None
+        _status = "ready"; print("[warmup] ready")
+    except Exception as e:
+        _decimer_err = f"{e.__class__.__name__}: {e}"
+        _status = "error"; print("[warmup] error:", _decimer_err)
     finally:
         _loading = False
 
@@ -92,16 +101,13 @@ def root():
     return {"ok": True, "message": "CloudSmiles up", "version": APP_VERSION}
 
 @app.get("/api/health")
-def health():
-    # Don’t block; just report current state (startup already kicked off warmup)
-    return {
-        "ok": True,
-        "engine": "DECIMER",
-        "version": APP_VERSION,
-        "status": _status,                    # "idle" | "loading" | "ready" | "error"
-        "decimer_ok": _decimer is not None,
-        "decimer_error": _decimer_err,
-    }
+def health(warmup: bool = Query(False)):
+    # timeout guard
+    if _status == "loading" and _warmup_started_at and time.time() - _warmup_started_at > WARMUP_TIMEOUT_S:
+        return {"ok": True, "engine":"DECIMER","version":APP_VERSION,"status":"error",
+                "decimer_ok": False, "decimer_error": f"warmup exceeded {WARMUP_TIMEOUT_S}s"}
+    return {"ok": True, "engine":"DECIMER","version":APP_VERSION,"status": _status,
+            "decimer_ok": _decimer is not None, "decimer_error": _decimer_err}
 
 @app.post("/api/warmup")
 def warmup():
