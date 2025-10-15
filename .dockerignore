@@ -1,7 +1,7 @@
+# safe ignores
 .git
 __pycache__/
 *.pyc
+.venv/
 .env
-venv/
 node_modules/
-models/
