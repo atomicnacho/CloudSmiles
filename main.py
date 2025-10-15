@@ -3,6 +3,7 @@ import base64, os, re, tempfile, threading, sys, types, importlib, importlib.uti
 from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, Query
 
 APP_NAME = "OCSR (DECIMER) API"
 APP_VERSION = "1.0.1"
@@ -75,16 +76,6 @@ def _warmup_blocking():
     finally:
         _loading = False
 
-# NEW: automatically kick off background warmup on startup
-@app.on_event("startup")
-def _trigger_warmup():
-    try:
-        threading.Thread(target=_warmup_blocking, daemon=True).start()
-    except Exception as e:
-        global _decimer_err, _status
-        _decimer_err = f"warmup failed: {e}"
-        _status = "error"
-
 def data_url_to_file(data_url: str) -> str:
     m = DATA_URL_RE.match(data_url)
     if not m:
@@ -120,6 +111,20 @@ def warmup():
     if not _loading:
         threading.Thread(target=_warmup_blocking, daemon=True).start()
     return {"ok": True, "status": "loading"}
+
+@app.get("/api/health")
+def health(warmup: bool = Query(False)):
+    if warmup and _decimer is None and not _loading and _decimer_err is None:
+        threading.Thread(target=_warmup_blocking, daemon=True).start()
+        # status will be "loading" immediately
+    return {
+        "ok": True,
+        "engine": "DECIMER",
+        "version": APP_VERSION,
+        "status": _status,
+        "decimer_ok": _decimer is not None,
+        "decimer_error": _decimer_err,
+    }
 
 @app.post("/api/ocsr")
 def ocsr(body: OcsrBody):
