@@ -2,14 +2,8 @@ fastapi==0.112.2
 uvicorn[standard]==0.30.6
 pydantic==2.8.2
 httpx==0.27.2
-
-# Headless avoids libGL
-opencv-python-headless==4.10.0.84
 Pillow==10.4.0
-
-# TF 2.10 needs NumPy < 1.24
 numpy==1.23.5
-
-# DECIMER 2.2.1 requires TF 2.10.x
 tensorflow==2.10.1
 DECIMER==2.2.1
+# we’ll force headless in the Dockerfile after install
