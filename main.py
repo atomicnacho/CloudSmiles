@@ -1,10 +1,8 @@
 # main.py
-import base64, os, re, tempfile, threading
+import base64, os, re, tempfile, threading, sys, types, importlib, importlib.util
 from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import base64, os, re, tempfile, importlib
-
 
 APP_NAME = "OCSR (DECIMER) API"
 APP_VERSION = "1.0.1"
@@ -32,7 +30,6 @@ class OcsrBody(BaseModel):
     handDrawn: Optional[bool] = True
 
 # --- BEGIN: pyheif shim (we only use PNG/JPG; avoid native HEIF dep) ---
-import sys, types, importlib.util
 try:
     if importlib.util.find_spec("pyheif") is None:
         _pyheif_stub = types.ModuleType("pyheif")
@@ -45,7 +42,7 @@ except Exception:
     pass
 # --- END: pyheif shim ---
 
-# Lazy DECIMER loading
+# Lazy DECIMER loading state
 _decimer = None
 _decimer_err = None
 _loading = False
@@ -68,7 +65,6 @@ def _ensure_decimer():
             _decimer_err = f"{e1} | {e2}"
             _status = "error"
 
-
 def _warmup_blocking():
     global _loading
     if _loading or _decimer is not None:
@@ -78,6 +74,16 @@ def _warmup_blocking():
         _ensure_decimer()
     finally:
         _loading = False
+
+# NEW: automatically kick off background warmup on startup
+@app.on_event("startup")
+def _trigger_warmup():
+    try:
+        threading.Thread(target=_warmup_blocking, daemon=True).start()
+    except Exception as e:
+        global _decimer_err, _status
+        _decimer_err = f"warmup failed: {e}"
+        _status = "error"
 
 def data_url_to_file(data_url: str) -> str:
     m = DATA_URL_RE.match(data_url)
@@ -96,7 +102,7 @@ def root():
 
 @app.get("/api/health")
 def health():
-    _ensure_decimer()  # make sure we’ve at least tried
+    # Don’t block; just report current state (startup already kicked off warmup)
     return {
         "ok": True,
         "engine": "DECIMER",
@@ -108,7 +114,7 @@ def health():
 
 @app.post("/api/warmup")
 def warmup():
-    """Kick off DECIMER import in the background so startup is instant."""
+    """Manual warmup endpoint (optional)."""
     if _decimer is not None:
         return {"ok": True, "status": "ready"}
     if not _loading:
@@ -117,7 +123,7 @@ def warmup():
 
 @app.post("/api/ocsr")
 def ocsr(body: OcsrBody):
-    # Ensure DECIMER is available
+    # Ensure DECIMER is available (non-blocking if warmup already ran)
     if _decimer is None and _decimer_err is None:
         _ensure_decimer()
     if _decimer is None:
@@ -139,8 +145,7 @@ def ocsr(body: OcsrBody):
     finally:
         try:
             os.remove(image_path)
-        except:
+        except Exception:
             pass
 
     return {"smiles": smiles or ""}
-
