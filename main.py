@@ -31,6 +31,20 @@ class OcsrBody(BaseModel):
     imageDataUrl: str
     handDrawn: Optional[bool] = True
 
+# --- BEGIN: pyheif shim (we only use PNG/JPG; avoid native HEIF dep) ---
+import sys, types, importlib.util
+try:
+    if importlib.util.find_spec("pyheif") is None:
+        _pyheif_stub = types.ModuleType("pyheif")
+        def _no_heif(*args, **kwargs):
+            raise ImportError("HEIF/HEIC not supported in this build")
+        _pyheif_stub.read = _no_heif
+        sys.modules["pyheif"] = _pyheif_stub
+except Exception:
+    # If anything goes wrong, we still proceed; DECIMER will import if it can.
+    pass
+# --- END: pyheif shim ---
+
 # Lazy DECIMER loading
 _decimer = None
 _decimer_err = None
