@@ -26,11 +26,8 @@ RUN pip install --upgrade pip \
  && pip install --no-cache-dir -r requirements.txt
 
 # Sanity: fail the build if imports are missing
-RUN python -c "import sys, importlib; mods=['cv2','decimer','pyheif']; \
-missing=[m for m in mods if importlib.util.find_spec(m) is None]; \
-print('Python:', sys.version); \
-assert not missing, f'Missing modules: {missing}'; \
-print('Sanity import check PASSED')"
+RUN python -c "import sys, importlib; mods=['cv2','decimer','pyheif']; missing=[m for m in mods if importlib.util.find_spec(m) is None]; print('Python:', sys.version); assert not missing, f'Missing modules: {missing}'; print('Sanity import check PASSED')"
+
 
 # Copy app source last
 COPY . .
