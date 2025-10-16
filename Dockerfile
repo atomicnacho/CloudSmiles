@@ -26,8 +26,8 @@ RUN pip install --upgrade pip \
  && pip install --no-cache-dir -r requirements.txt
 
 # Sanity: fail the build if imports are missing
-RUN python -c "import sys, pkgutil; mods=['cv2','decimer','pyheif']; \
-missing=[m for m in mods if pkgutil.find_loader(m) is None]; \
+RUN python -c "import sys, importlib; mods=['cv2','decimer','pyheif']; \
+missing=[m for m in mods if importlib.util.find_spec(m) is None]; \
 print('Python:', sys.version); \
 assert not missing, f'Missing modules: {missing}'; \
 print('Sanity import check PASSED')"
@@ -36,4 +36,4 @@ print('Sanity import check PASSED')"
 COPY . .
 
 # Final startup: verify imports again, then run the API
-CMD ["sh","-lc","python -c \"import importlib; [importlib.import_module(m) for m in ['cv2','decimer','pyheif']]; print('startup imports OK')\" && exec uvicorn main:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh","-lc","python - <<'PY'\nimport importlib\nfor m in ['cv2','decimer','pyheif']:\n    importlib.import_module(m)\nprint('startup imports OK')\nPY\nexec uvicorn main:app --host 0.0.0.0 --port ${PORT}"]
