@@ -8,7 +8,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 libxext6 libxrender1 \
  && rm -rf /var/lib/apt/lists/*
 
-# helpful runtime flags; adjust as you like
 ENV OMP_NUM_THREADS=1 \
     TF_NUM_INTRAOP_THREADS=1 \
     TF_NUM_INTEROP_THREADS=1 \
@@ -18,16 +17,23 @@ ENV OMP_NUM_THREADS=1 \
 WORKDIR /app
 COPY requirements.txt .
 
-# install python deps; ensure we end up with *headless* opencv
+# 1) install base deps
+# 2) install DECIMER (this may pull opencv-python)
+# 3) forcibly replace OpenCV with headless variant
 RUN pip install --upgrade pip \
  && pip install --no-cache-dir -r requirements.txt \
+ && pip install --no-cache-dir DECIMER==2.2.1 \
  && pip uninstall -y opencv-python || true \
- && pip install --no-cache-dir opencv-python-headless==4.10.0.84
-
-# (optional) sanity check so builds fail fast if libs are missing
-# RUN python - <<'PY'
-# import cv2, sys; print("cv2:", cv2.__version__)
-# PY
+ && pip install --no-cache-dir opencv-python-headless==4.10.0.84 \
+ # --- sanity checks: fail build early if imports break ---
+ && python - <<'PY'
+import cv2, importlib, pkgutil
+print("cv2 OK:", cv2.__version__, cv2.__file__)
+assert pkgutil.find_loader("decimer") is not None, "decimer not found"
+print("decimer OK")
+import pyheif
+print("pyheif OK")
+PY
 
 COPY . .
 
