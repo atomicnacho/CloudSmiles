@@ -33,6 +33,12 @@ RUN pip install --upgrade pip \
  && pip uninstall -y opencv-python || true \
  && pip install --no-cache-dir opencv-python-headless==4.10.0.84
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    libheif1 libde265-0 \
+    libgl1 libglib2.0-0 \
+ && rm -rf /var/lib/apt/lists/*
+
 # ✅ Copy your application code (this was missing)
 COPY . .
 
