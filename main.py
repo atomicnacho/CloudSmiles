@@ -1,16 +1,15 @@
 # main.py
 import base64, os, re, tempfile, threading, sys, types, importlib, importlib.util, time
-from typing import Optional
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from typing import Optional, Callable
 from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel
 
 APP_NAME = "OCSR (DECIMER) API"
 APP_VERSION = "1.0.1"
 
 app = FastAPI(title=APP_NAME, version=APP_VERSION)
 
-# Simple CORS (adjust if you need tighter origins)
+# CORS (adjust origins as needed)
 ALLOWED_ORIGINS = os.getenv("CORS_ORIGINS", "*")
 try:
     from fastapi.middleware.cors import CORSMiddleware
@@ -30,7 +29,7 @@ class OcsrBody(BaseModel):
     imageDataUrl: str
     handDrawn: Optional[bool] = True
 
-# --- BEGIN: pyheif shim (we only use PNG/JPG; avoid native HEIF dep) ---
+# --- BEGIN: pyheif shim (we only support PNG/JPG; avoid native HEIF dep) ---
 try:
     if importlib.util.find_spec("pyheif") is None:
         _pyheif_stub = types.ModuleType("pyheif")
@@ -39,49 +38,89 @@ try:
         _pyheif_stub.read = _no_heif
         sys.modules["pyheif"] = _pyheif_stub
 except Exception:
-    # If anything goes wrong, we still proceed; DECIMER will import if it can.
     pass
 # --- END: pyheif shim ---
 
-# Lazy DECIMER loading state
-_decimer = None
-_decimer_err = None
+# Lazy DECIMER state
+_decimer_predict: Optional[Callable] = None   # a callable(image_path, hand_drawn=bool) -> str
+_decimer_err: Optional[str] = None
 _loading = False
 _status = "idle"
 
-def _ensure_decimer():
-    """Try importing DECIMER (uppercase first), then lowercase as fallback."""
-    global _decimer, _decimer_err, _status
-    if _decimer is not None or _decimer_err is not None:
-        return
-    _status = "loading"
-    try:
-        _decimer = importlib.import_module("DECIMER")  # try uppercase first
-        _status = "ready"
-    except Exception as e1:
-        try:
-            _decimer = importlib.import_module("decimer")  # fallback
-            _status = "ready"
-        except Exception as e2:
-            _decimer_err = f"{e1} | {e2}"
-            _status = "error"
+# Warmup timing / timeout
+WARMUP_TIMEOUT_S = int(os.getenv("WARMUP_TIMEOUT_S", "900"))  # 15 min cap by default (TF + model can be heavy)
+_warmup_started_at: Optional[float] = None
 
-WARMUP_TIMEOUT_S = 600  # choose a sensible cap for your setup
-_warmup_started_at = None
+def _resolve_decimer_callable() -> Callable:
+    """
+    Import DECIMER (try 'DECIMER' then 'decimer').
+    Return a callable that accepts (image_path, hand_drawn=bool) and returns SMILES.
+    """
+    # Try module import (uppercase first for PyPI name)
+    mod = None
+    e1 = e2 = None
+    try:
+        mod = importlib.import_module("DECIMER")
+    except Exception as err:
+        e1 = err
+        try:
+            mod = importlib.import_module("decimer")
+        except Exception as err2:
+            e2 = err2
+
+    if mod is None:
+        raise ImportError(f"{e1} | {e2}")
+
+    # Case A: module directly exposes predict_SMILES(image_path, hand_drawn=bool)
+    predict = getattr(mod, "predict_SMILES", None)
+    if callable(predict):
+        def _call(image_path: str, hand_drawn: bool) -> str:
+            try:
+                return predict(image_path, hand_drawn=hand_drawn)
+            except TypeError:
+                # Some builds accept only the path
+                return predict(image_path)
+        return _call
+
+    # Case B: module exposes load_model() returning an object with a predict method
+    loader = getattr(mod, "load_model", None)
+    if callable(loader):
+        mdl = loader()
+        # common method variants
+        for name in ("predict_SMILES", "predict_smiles", "predict"):
+            fn = getattr(mdl, name, None)
+            if callable(fn):
+                def _call(image_path: str, hand_drawn: bool, _fn=fn):
+                    try:
+                        return _fn(image_path, hand_drawn=hand_drawn)
+                    except TypeError:
+                        return _fn(image_path)
+                return _call
+
+    raise AttributeError("DECIMER is imported but no usable predict function was found")
 
 def _warmup_blocking():
-    global _status, _loading, _decimer, _decimer_err, _warmup_started_at
+    global _status, _loading, _decimer_predict, _decimer_err, _warmup_started_at
     try:
-        _status = "loading"; _loading = True; _warmup_started_at = time.time()
+        _status = "loading"
+        _loading = True
+        _warmup_started_at = time.time()
         print("[warmup] starting...")
-        import cv2; print("[warmup] cv2 ok")
-        import decimer as _d; print("[warmup] decimer import ok")
-        model = _d.load_model(); print("[warmup] decimer model loaded")
-        _decimer = model; _decimer_err = None
-        _status = "ready"; print("[warmup] ready")
+
+        # OpenCV check first so we fail fast if runtime libs are missing
+        import cv2  # noqa: F401
+        print("[warmup] cv2 import ok")
+
+        # Resolve DECIMER into a callable
+        _decimer_predict = _resolve_decimer_callable()
+        _decimer_err = None
+        _status = "ready"
+        print("[warmup] DECIMER ready")
     except Exception as e:
+        _decimer_predict = None
         _decimer_err = f"{e.__class__.__name__}: {e}"
-        _status = "error"; print("[warmup] error:", _decimer_err)
+        _status = "error"
+        print("[warmup] error:", _decimer_err)
     finally:
         _loading = False
 
@@ -102,47 +141,47 @@ def root():
 
 @app.get("/api/health")
 def health(warmup: bool = Query(False)):
-    # timeout guard
+    # auto-warmup if asked and not started yet
+    if warmup and (_decimer_predict is None) and (not _loading) and (_decimer_err is None):
+        threading.Thread(target=_warmup_blocking, daemon=True).start()
+
+    # timeout guard while loading
     if _status == "loading" and _warmup_started_at and time.time() - _warmup_started_at > WARMUP_TIMEOUT_S:
-        return {"ok": True, "engine":"DECIMER","version":APP_VERSION,"status":"error",
-                "decimer_ok": False, "decimer_error": f"warmup exceeded {WARMUP_TIMEOUT_S}s"}
-    return {"ok": True, "engine":"DECIMER","version":APP_VERSION,"status": _status,
-            "decimer_ok": _decimer is not None, "decimer_error": _decimer_err}
+        return {
+            "ok": True, "engine": "DECIMER", "version": APP_VERSION,
+            "status": "error", "decimer_ok": False,
+            "decimer_error": f"warmup exceeded {WARMUP_TIMEOUT_S}s"
+        }
+
+    return {
+        "ok": True, "engine": "DECIMER", "version": APP_VERSION,
+        "status": _status, "decimer_ok": _decimer_predict is not None,
+        "decimer_error": _decimer_err
+    }
 
 @app.post("/api/warmup")
 def warmup():
-    """Manual warmup endpoint (optional)."""
-    if _decimer is not None:
+    if _decimer_predict is not None:
         return {"ok": True, "status": "ready"}
     if not _loading:
         threading.Thread(target=_warmup_blocking, daemon=True).start()
     return {"ok": True, "status": "loading"}
 
-@app.get("/api/health")
-def health(warmup: bool = Query(False)):
-    if warmup and _decimer is None and not _loading and _decimer_err is None:
-        threading.Thread(target=_warmup_blocking, daemon=True).start()
-        # status will be "loading" immediately
-    return {
-        "ok": True,
-        "engine": "DECIMER",
-        "version": APP_VERSION,
-        "status": _status,
-        "decimer_ok": _decimer is not None,
-        "decimer_error": _decimer_err,
-    }
-
 @app.post("/api/ocsr")
 def ocsr(body: OcsrBody):
-    # Ensure DECIMER is available (non-blocking if warmup already ran)
-    if _decimer is None and _decimer_err is None:
-        _ensure_decimer()
-    if _decimer is None:
-        raise HTTPException(status_code=503, detail=f"DECIMER not ready: {_decimer_err or 'warming up'}")
+    # Ensure DECIMER is available (fast path if already warmed)
+    if _decimer_predict is None and _decimer_err is None and not _loading:
+        try:
+            # Try to resolve quickly without full background thread
+            _decimer = _resolve_decimer_callable()
+            globals()["_decimer_predict"] = _decimer
+            globals()["_status"] = "ready"
+        except Exception as e:
+            globals()["_decimer_err"] = f"{e.__class__.__name__}: {e}"
+            globals()["_status"] = "error"
 
-    predict_SMILES = getattr(_decimer, "predict_SMILES", None)
-    if not callable(predict_SMILES):
-        raise HTTPException(status_code=500, detail="DECIMER missing predict_SMILES()")
+    if _decimer_predict is None:
+        raise HTTPException(status_code=503, detail=f"DECIMER not ready: {_decimer_err or 'warming up'}")
 
     try:
         image_path = data_url_to_file(body.imageDataUrl)
@@ -150,7 +189,11 @@ def ocsr(body: OcsrBody):
         raise HTTPException(status_code=400, detail=f"Bad image: {e}")
 
     try:
-        smiles = predict_SMILES(image_path, hand_drawn=bool(body.handDrawn))
+        # Call the resolved predictor; support both with/without hand_drawn arg
+        try:
+            smiles = _decimer_predict(image_path, hand_drawn=bool(body.handDrawn))
+        except TypeError:
+            smiles = _decimer_predict(image_path)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DECIMER error: {e}")
     finally:
