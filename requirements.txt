@@ -8,5 +8,5 @@ numpy==1.23.5
 pyheif==0.8.0
 opencv-python-headless==4.10.0.84
 
-# TF pin that DECIMER expects
+# TensorFlow that DECIMER expects
 tensorflow==2.10.1
