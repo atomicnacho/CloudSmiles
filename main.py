@@ -4,6 +4,20 @@ from typing import Optional, Callable
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
+import importlib, pkgutil, traceback
+
+def _probe():
+    info = {"cv2": None, "decimer": None, "pyheif": None, "errors": []}
+    for mod in ("cv2", "decimer", "pyheif"):
+        try:
+            m = importlib.import_module(mod)
+            v = getattr(m, "__version__", None)
+            p = getattr(m, "__file__", None)
+            info[mod] = {"version": v, "file": p}
+        except Exception as e:
+            info["errors"].append(f"{mod}: {e}")
+    return info
+
 APP_NAME = "OCSR (DECIMER) API"
 APP_VERSION = "1.0.1"
 
