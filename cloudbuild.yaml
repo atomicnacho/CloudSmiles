@@ -6,6 +6,19 @@ substitutions:
   _API_KEY: change-me           # <-- set a real key in the Trigger later
 
 steps:
+- name: gcr.io/cloud-builders/gcloud
+  entrypoint: bash
+  args:
+    - -lc
+    - |
+      echo "== PWD / LIST =="
+      pwd; ls -la
+      echo "== SHOW .gcloudignore / .dockerignore (if any) =="
+      [ -f .gcloudignore ] && sed -n '1,200p' .gcloudignore || echo "(no .gcloudignore)"
+      [ -f .dockerignore ] && sed -n '1,200p' .dockerignore || echo "(no .dockerignore)"
+      echo "== SHOW Dockerfile WITH LINE NUMBERS =="
+      nl -ba Dockerfile | sed -n '1,200p'
+
   # Build the container
   - name: gcr.io/cloud-builders/docker
     args:
