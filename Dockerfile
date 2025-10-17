@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     libheif1 \
     libde265-0 \
-    && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
 # ---- Runtime env tweaks (quiet TF, fewer threads, unbuffered logs) ----------
 ENV OMP_NUM_THREADS=1 \
@@ -27,12 +27,12 @@ COPY requirements.txt ./
 RUN python -m pip install --upgrade pip \
  && pip install --no-cache-dir -r requirements.txt
 
-# Force headless OpenCV in case any dependency (e.g. DECIMER) pulled in non-headless
+# Force headless OpenCV in case any dep pulled in GUI build
 RUN pip uninstall -y opencv-python || true \
  && pip install --no-cache-dir opencv-python-headless==4.10.0.84
 
 # ---- Sanity check: ensure critical modules resolve at build time ------------
-# (Using heredoc prevents Dockerfile from seeing any "import" token as an instruction)
+# Use a heredoc so Docker doesn't misread "import" as an instruction
 RUN python - <<'PY'
 import sys, importlib
 mods = ['cv2','decimer','pyheif']
@@ -45,9 +45,7 @@ print('Sanity import check PASSED')
 PY
 
 # ---- App code ---------------------------------------------------------------
-# Copy the rest of your service (main.py, routers, etc.)
 COPY . /app
 
 # ---- Start server -----------------------------------------------------------
-# Cloud Run injects $PORT; Uvicorn will bind to it.
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
