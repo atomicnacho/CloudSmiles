@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libde265-0 \
  && rm -rf /var/lib/apt/lists/*
 
-# ---- Runtime env tweaks (quiet TF, fewer threads, unbuffered logs) ----------
+# ---- Runtime env tweaks -----------------------------------------------------
 ENV OMP_NUM_THREADS=1 \
     TF_NUM_INTRAOP_THREADS=1 \
     TF_NUM_INTEROP_THREADS=1 \
@@ -23,26 +23,26 @@ WORKDIR /app
 # ---- Python deps first (better layer caching) -------------------------------
 COPY requirements.txt ./
 
-# Use a modern pip, then install deps
 RUN python -m pip install --upgrade pip \
- && pip install --no-cache-dir -r requirements.txt
-
-# Force headless OpenCV in case any dep pulled in GUI build
-RUN pip uninstall -y opencv-python || true \
+ && pip install --no-cache-dir -r requirements.txt \
+ # Force headless OpenCV in case a dependency pulled GUI build
+ && pip uninstall -y opencv-python || true \
  && pip install --no-cache-dir opencv-python-headless==4.10.0.84
 
 # ---- Sanity check: ensure critical modules resolve at build time ------------
-# Use a heredoc so Docker doesn't misread "import" as an instruction
-RUN python - <<'PY'
-import sys, importlib
-mods = ['cv2','decimer','pyheif']
-missing = [m for m in mods if importlib.util.find_spec(m) is None]
-print('Python:', sys.version)
-print('Checking modules:', mods)
-if missing:
-    raise SystemExit(f'ERROR: Missing modules at build time: {missing}')
-print('Sanity import check PASSED')
-PY
+# (No Dockerfile heredocs; write a tiny script then run it)
+RUN set -e; \
+  printf '%s\n' \
+    "import sys, importlib" \
+    "mods=['cv2','decimer','pyheif']" \
+    "missing=[m for m in mods if importlib.util.find_spec(m) is None]" \
+    "print('Python:', sys.version)" \
+    "print('Checking modules:', mods)" \
+    "print('Missing:', missing)" \
+    "sys.exit(1 if missing else 0)" \
+    > /tmp/sanity.py; \
+  python /tmp/sanity.py; \
+  rm -f /tmp/sanity.py
 
 # ---- App code ---------------------------------------------------------------
 COPY . /app
