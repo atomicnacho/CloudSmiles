@@ -1,10 +1,11 @@
 FROM python:3.10-slim
 
-# System libs: OpenMP for TF; HEIF decoding for pyheif
+# System libs: OpenMP for TF; HEIF for pyheif; OpenGL for OpenCV
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     libheif1 \
     libde265-0 \
+    libgl1 \
  && rm -rf /var/lib/apt/lists/*
 
 ENV OMP_NUM_THREADS=1 \
@@ -17,12 +18,10 @@ ENV OMP_NUM_THREADS=1 \
 
 WORKDIR /app
 
-# Install Python deps from the file only
 COPY requirements.txt .
 RUN python -m pip install --upgrade pip \
  && python -m pip install --no-cache-dir -r requirements.txt
 
-# App code last to maximize layer cache
 COPY . .
 
 EXPOSE 8080
