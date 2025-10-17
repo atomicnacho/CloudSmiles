@@ -1,11 +1,12 @@
 FROM python:3.10-slim
 
-# System libs: OpenMP for TF; HEIF for pyheif; OpenGL for OpenCV
+# System libs: OpenMP (TF), HEIF (pyheif), OpenGL (OpenCV), GLib (OpenCV needs libgthread)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     libheif1 \
     libde265-0 \
     libgl1 \
+    libglib2.0-0 \
  && rm -rf /var/lib/apt/lists/*
 
 ENV OMP_NUM_THREADS=1 \
