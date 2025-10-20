@@ -4,6 +4,9 @@ from typing import Optional, Callable, Dict, Any
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
+import os
+os.environ.setdefault("PYSTOW_HOME", "/models")
+
 APP_NAME = "OCSR (DECIMER) API"
 APP_VERSION = "1.0.1"
 
