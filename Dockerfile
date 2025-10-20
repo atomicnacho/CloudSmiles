@@ -1,26 +1,26 @@
-# ---- Base image ----
+# ---------- base ----------
 FROM python:3.10-slim
 
-# System libs required by TensorFlow + headless OpenCV + HEIF
+# System libs needed by OpenCV + HEIF
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgomp1 \
     libglib2.0-0 \
-    libsm6 \
-    libxrender1 \
-    libxext6 \
     libgl1 \
+    libxext6 \
+    libxrender1 \
+    libsm6 \
     libheif1 \
     libde265-0 \
-  && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/*
 
-# Runtime/env tuning
+# Performance/verbosity knobs
 ENV OMP_NUM_THREADS=1 \
     TF_NUM_INTRAOP_THREADS=1 \
     TF_NUM_INTEROP_THREADS=1 \
     TF_CPP_MIN_LOG_LEVEL=2 \
     PYTHONUNBUFFERED=1
 
-# Cache to a fixed layer so repeated cold starts don’t re-download
+# Caches so DECIMER keeps models in a writable layer
 ENV PYSTOW_HOME=/models \
     HF_HOME=/models \
     TRANSFORMERS_CACHE=/models \
@@ -28,18 +28,16 @@ ENV PYSTOW_HOME=/models \
 
 WORKDIR /app
 
-# ---- Python deps ----
-COPY requirements.txt ./
+# ---------- deps ----------
+COPY requirements.txt .
+RUN pip install --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt
 
-# Install deps; keep headless OpenCV; do NOT run any Python that imports decimer here
-RUN python -m pip install --upgrade pip \
- && python -m pip install --no-cache-dir -r requirements.txt \
- && python -m pip uninstall -y opencv-python || true \
- && python -m pip install --no-cache-dir opencv-python-headless==4.10.0.84
+# ---------- app ----------
+COPY . /app
 
-# ---- App code (last for faster rebuilds) ----
-COPY . .
-
-# Cloud Run will pass $PORT
+# Cloud Run uses $PORT
 ENV PORT=8080
+
+# Start the API
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
